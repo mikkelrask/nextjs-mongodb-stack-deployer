@@ -2,7 +2,7 @@
 Deployer made in Go for my [nextjs-mongodb-stack](/mikkelrask/nextjs-mongodb-stack) thing, that, as the name implies, builds docker image for a nextjs website with a mongodb database and spins up the stack purely from environment variables.
 
 ## Download
-Go to [Releases](#) to download a version for your OS/Arch.
+Go to [Releases](https://github.com/mikkelrask/nextjs-mongodb-stack-deployer/releases) and download the latest version for your OS/Arch.
 
 ## Build yourself
 ```
