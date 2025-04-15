@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+  "path/filepath"
 	"syscall"
 	"strings"
 
@@ -13,19 +14,91 @@ import (
 	"github.com/AlecAivazis/survey/v2/terminal"
 )
 
+
+var cwd = os.Getenv("PWD")
+var dirName = filepath.Base(cwd)
+var frontendContainer = dirName+"-frontend-1"
+var mongoContainer = dirName+"-mongodb-1"
+
 var envVars = map[string]string{
 	"NEXTJS_PORT":   "3000",
 	"MONGO_PORT":    "27017",
 	"MONGO_DB_NAME": "production",
 	"MONGO_USER":    "admin",
 	"MONGO_PASS":    "",
+	"DUMP_PATH":  	 "/path/to/dump",
 	"REPO_URL":      "",
 	"REPO_PRIVATE":  "No",
 	"GIT_USER":      "",
 	"GIT_PASS":      "",
 }
+var args = map[string]string{
+	"down": 		"Stopping the running Docker containers and removing the volumes",
+	"rebuild": 		"Rebuilding the Docker image with current configuration",
+	"redeploy": 	"Stopping running container and rebuilding image before re-starting the stack",
+	"reset": 		"Deleting configuration and starting fresh",
+	"restart": 		"Restarting the Docker containers",
+	"start": 		"Starting the Docker containers",
+	"up": 			"Starting the Docker containers",
+  "logs":     "Tail the logs for the frondend container, the mongodb container or both",
+}
+
+func deployerHelp() {
+	fmt.Println("🚀 DPLOY - BUILD YOUR WEBSITE")
+	fmt.Println("\nUsage: deployer [optionable action]")
+	fmt.Println("\nActions:")
+	fmt.Printf(" deployer: %s\n", "Run without any arguments to start the setup process")
+	for arg, message := range args {
+		fmt.Printf(" deployer %s: %s\n", arg, message)
+	}
+	fmt.Println("\nExamples:")
+	fmt.Println("  deployer")
+	fmt.Println("  deployer redeploy")
+}
 
 func main() {
+	if len(os.Args) > 1 {
+		arg := os.Args[1]
+		if message, exists := args[arg]; exists {
+			fmt.Printf("\n%s\n", message)
+			switch arg {
+			case "rebuild":
+				stopContainers()
+				buildImage()
+				startContainers()
+			case "redeploy":
+				stopContainers()
+				buildImage()
+				startContainers()
+			case "stop":
+				stopContainers()
+			case "down":
+				stopContainers()
+			case "up", "start":
+				startContainers()
+			case "restart":
+				stopContainers()
+				startContainers()
+			case "logs":
+				container := askWhatContainer()
+				showLogs(container)
+			case "attach":
+				attach()
+			case "reset":
+				fmt.Println("\n🔄 Resetting configuration...")
+				os.Remove(".env")
+				fmt.Println("✅ Configuration reset. Exiting...")
+			default:
+				fmt.Printf("⚠️  Unknown action: %s\n", arg)
+			}
+			os.Exit(0)
+		} else {
+			fmt.Printf("⚠️  Unknown argument: %s\n", arg)
+			deployerHelp()
+			os.Exit(1)
+		}
+	}
+
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM)
 
@@ -59,8 +132,9 @@ func main() {
 	envVars["NEXTJS_PORT"] = askQuestion("Do you want to specify a port for NextJS? ", envVars["NEXTJS_PORT"])
 
 	if askForDataBaseDump() == "Yes" {
-		dumpPath := askQuestion("Database dump path: ", "/path/to/mongodb/dump")
+		dumpPath := askQuestion("Database dump path: ", envVars["DUMP_PATH"])
 		copyDumpToDumpDirectory(dumpPath)
+		envVars["DUMP_PATH"] = dumpPath
 	}
 	envVars["MONGO_DB_NAME"] = askQuestion("MongoDB Database name?", envVars["MONGO_DB_NAME"])
 	envVars["MONGO_USER"] = askQuestion("MongoDB Username: ", envVars["MONGO_USER"])
@@ -213,8 +287,7 @@ func runChecks() {
 	_, err := os.Stat(".env")
 	if err != nil {
 		if os.IsNotExist(err) {
-      // continue
-
+			// .env file does not exist, continue
 		} else {
 			fmt.Printf("⚠️  Error checking .env file: %v\n", err)
 		}
@@ -297,4 +370,35 @@ func stopContainers() {
 	fmt.Println("\n🛑 Stopping the Docker containers...")
 	stopCommand := "docker compose down --volumes"
 	runCommand(stopCommand)
+}
+
+func showLogs(container string) {
+  fmt.Printf("\n👨‍💻 Logs for %s\n", container)
+  logsCommand := "" // Declare the variable before switch
+  switch container {
+  case "NextJS":
+    logsCommand = "docker logs -f " + frontendContainer
+  case "MongoDB":
+    logsCommand = "docker logs -f " + mongoContainer
+  case "":
+    logsCommand = "docker compose logs -f"
+  default:
+    fmt.Println("❌ Unknown container:", container)
+    return
+  }
+  runCommand(logsCommand)
+}
+
+func askWhatContainer() string{
+	var response string
+	prompt := &survey.Select{
+		Message: "What container?",
+		Options: []string{"NextJS", "MongoDB", ""},
+		Default: "",
+	}
+	err := survey.AskOne(prompt, &response)
+	if err != nil {
+		handleSurveyError(err)
+	}
+	return response
 }
